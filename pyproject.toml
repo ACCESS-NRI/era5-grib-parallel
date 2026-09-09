@@ -12,12 +12,11 @@ license = { file = "LICENSE" }
 readme = "README.md"
 keywords = ["ACCESS-RAM", "Regional Nesting Suite", "era5grib"]
 dynamic = ["version"]
+requires-python = ">=3.10"
 dependencies = [
-    "python >=3.10,<=3.12",
     "cdo",
     "numpy <2",
     "pandas",
-    "versioneer",
 ]
 
 [project.urls]
@@ -29,18 +28,14 @@ era5grib_parallel = "era5grib_parallel.nci_era5grib_parallel:main"
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = [
-    "setuptools>64", 
-    "versioneer[toml]"
+    "setuptools>=80", 
+    "setuptools-scm[simple]>=8",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 namespaces = false
 
-[tool.versioneer]
-VCS = "git"
-style = "pep440"
-versionfile_source = "src/era5grib_parallel/_version.py"
-versionfile_build = "era5grib_parallel/_version.py"
-tag_prefix = ""
-parentdir_prefix = "era5grib-parallel-"
+[tool.setuptools_scm]
+version_scheme = "no-guess-dev"
+local_scheme = "node-and-date"

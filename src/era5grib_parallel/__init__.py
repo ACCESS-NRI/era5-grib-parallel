@@ -3,6 +3,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from era5grib_parallel import _version
+from importlib.metadata import version
 
-__version__ = _version.get_versions()["version"]
+__version__ = version(__package__)

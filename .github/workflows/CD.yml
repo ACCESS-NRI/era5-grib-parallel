@@ -3,7 +3,10 @@ name: CD
 on:
   push:
     tags:        
-      - '**' 
+      - '**'
+
+env:
+  ARTIFACT_DIR: dist_artifact
 
 jobs:
   get-package-name:
@@ -13,7 +16,7 @@ jobs:
       package-name: ${{ steps.get-package-name.outputs.package-name }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-tags: true
           fetch-depth: 0
@@ -23,68 +26,61 @@ jobs:
         run: |
           echo "package-name=$(yq '.project.name' pyproject.toml)" >> $GITHUB_OUTPUT
   
-  release-conda-package:
-    name: Build with conda and release
+  publish-python-package:
+    name: Publish Python Package
+    uses: access-nri/actions/.github/workflows/publish-python-package.yml@main
+    with:
+      pypi-package: false
+    secrets: inherit
+    permissions:
+      actions: write
+
+  create-github-release:
+    name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: get-package-name
-    env:
-      BUILD_FOLDER: ${{github.workspace}}/build
-      PACKAGE_PATH: ${{github.workspace}}/build/noarch/*.tar.bz2
+    needs: [get-package-name, publish-python-package]
     permissions:
       contents: write
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - name: Download artifact
+        uses: actions/download-artifact@v8
         with:
-            fetch-tags: true
-            fetch-depth: 0 
+          name: ${{ needs.publish-python-package.outputs.artifact-name }}
+          path: ${{ env.ARTIFACT_DIR }}
 
-      - name: Setup conda build environment
-        uses: conda-incubator/setup-miniconda@a4260408e20b96e80095f42ff7f1a15b27dd94ca # v3.0.4
-        with:
-          miniconda-version: "latest"
-          python-version: ${{ vars.PY_VERSION }} 
-          environment-file: .conda/env_build.yml
-          auto-activate-base: false
-          auto-update-conda: false
-          show-channel-urls: true
-      
-      - name: Build conda package
-        shell: bash -el {0}
-        run: |
-          conda build . --no-anaconda-upload --output-folder=${{env.BUILD_FOLDER}} -c accessnri -c conda-forge -c coecms
-      
-      - name: Upload conda package to Anaconda.org
-        shell: bash -el {0}
-        run: |
-          anaconda -t ${{ secrets.ANACONDA_TOKEN }} upload --user ${{ secrets.ANACONDA_USER_NAME }} ${{env.PACKAGE_PATH}}
-      
       - name: Create Release
-        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 #v2.0.8
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 #v2.3.3
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{needs.get-package-name.outputs.package-name}} ${{ github.ref_name }}
+          name: ${{ needs.get-package-name.outputs.package-name }} ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: |
-            ${{env.PACKAGE_PATH}}
-
-  # Dispatch the access-ram-condaenv repo (within the same GitHub organization) to update the conda environment 
-  # and deploy the new conda environment
-  dispatch-access-ram-condaenv:
-    name: Dispatch the ${{ github.repository_owner }}/access-ram-condaenv repo
+          files: ${{ env.ARTIFACT_DIR }}/*
+    
+  cleanup-on-failure:
+    name: Cleanup on failure
     runs-on: ubuntu-latest
-    needs: [get-package-name, release-conda-package]
+    needs: create-github-release
+    # Run this job if any of the previous jobs failed, or if the workflow was cancelled
+    if: ${{ ( always() && failure() ) || cancelled() }}
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-    - name: Dispatch repo
-      uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
-      with:
-        token: ${{secrets.REPO_CONTENT_WRITE_TOKEN}}
-        repository: ${{ github.repository_owner }}/access-ram-condaenv
-        event-type: release
-        client-payload: |-
-          {
-            "dependency": "${{needs.get-package-name.outputs.package-name}}",
-            "version": "${{github.ref_name}}",
-            "token": "${{secrets.REPO_DISPATCH_VERIFICATION_TOKEN}}"
-          }
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-tags: true
+          fetch-depth: 0 
+      
+      # Delete newly created tag
+      - name: Cleanup tag
+        run: |
+          git push origin ':${{ github.ref }}'
+          echo "A job in the current workflow failed. Tag '${{ github.ref }}' was deleted."
+      
+      # Delete newly created GitHub release
+      - name: Cleanup GitHub release
+        run: |
+           gh release delete '${{ github.ref_name }}' && echo "GitHub release was deleted." || echo "No GitHub release '${{ github.ref_name }}' to delete."
