@@ -61,8 +61,8 @@ jobs:
     name: Cleanup on failure
     runs-on: ubuntu-latest
     needs: create-github-release
-    # Run this job if any of the previous jobs failed, or if the workflow was cancelled
-    if: ${{ ( always() && failure() ) || cancelled() }}
+    # Run this job if any of the previous jobs failed
+    if: always() && failure()
     permissions:
       contents: write
     env:
